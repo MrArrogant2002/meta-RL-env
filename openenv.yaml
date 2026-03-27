@@ -1,0 +1,27 @@
+# Starter metadata for the ticket triage environment.
+# Adjust field names to match the exact OpenEnv schema installed in your setup.
+
+name: customer-support-ticket-triage
+display_name: Customer Support Ticket Triage
+description: >
+  An OpenEnv environment that simulates support ticket triage with
+  multi-step actions, deterministic grading, and partial-progress rewards.
+version: 0.1.0
+entrypoint: app:app
+runtime: python
+tags:
+  - openenv
+  - customer-support
+  - triage
+models:
+  observation: src.models.Observation
+  action: src.models.Action
+  reward: src.models.Reward
+api:
+  reset: /reset
+  step: /step
+  state: /state
+extra_endpoints:
+  tasks: /tasks
+  grader: /grader
+  baseline: /baseline

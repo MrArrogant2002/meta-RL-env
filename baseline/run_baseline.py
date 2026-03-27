@@ -1,0 +1,139 @@
+from __future__ import annotations
+
+import json
+import os
+from typing import Any
+
+from openai import OpenAI
+
+from src.environment import TicketTriageEnv
+from src.models import Action, ActionType, Observation
+from src.tasks import list_tasks
+
+
+DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+
+def _extract_json(text: str) -> dict[str, Any]:
+    text = text.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if len(lines) >= 3:
+            text = "\n".join(lines[1:-1])
+    return json.loads(text)
+
+
+def _build_prompt(observation: Observation) -> str:
+    ticket = observation.current_ticket
+    return f"""
+You are a customer support triage assistant.
+Return JSON only with this schema:
+{{
+  "category": "...",
+  "priority": "...",
+  "queue": "...",
+  "response_template": "...",
+  "tags": ["..."],
+  "escalated": true_or_false,
+  "resolved": true_or_false
+}}
+
+Allowed action types in the environment:
+- set_category
+- set_priority
+- set_queue
+- set_response_template
+- add_tag
+- mark_escalated
+- mark_resolved
+- finish
+
+Ticket:
+- task_id: {observation.task_id}
+- difficulty: {observation.difficulty.value}
+- subject: {ticket.subject}
+- body: {ticket.body}
+- channel: {ticket.channel}
+- customer_tier: {ticket.customer_tier}
+- sentiment: {ticket.sentiment}
+""".strip()
+
+
+def _plan_actions(observation: Observation, decision: dict[str, Any]) -> list[Action]:
+    ticket_id = observation.current_ticket.ticket_id
+    actions = [
+        Action(action_type=ActionType.SET_CATEGORY, ticket_id=ticket_id, value=decision["category"]),
+        Action(action_type=ActionType.SET_PRIORITY, ticket_id=ticket_id, value=decision["priority"]),
+        Action(action_type=ActionType.SET_QUEUE, ticket_id=ticket_id, value=decision["queue"]),
+        Action(
+            action_type=ActionType.SET_RESPONSE_TEMPLATE,
+            ticket_id=ticket_id,
+            value=decision["response_template"],
+        ),
+    ]
+
+    for tag in decision.get("tags", []):
+        actions.append(Action(action_type=ActionType.ADD_TAG, ticket_id=ticket_id, value=tag))
+
+    if decision.get("escalated"):
+        actions.append(Action(action_type=ActionType.MARK_ESCALATED, ticket_id=ticket_id))
+
+    if decision.get("resolved"):
+        actions.append(Action(action_type=ActionType.MARK_RESOLVED, ticket_id=ticket_id))
+
+    actions.append(Action(action_type=ActionType.FINISH, ticket_id=ticket_id))
+    return actions
+
+
+def run_baseline() -> dict[str, Any]:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is required to run the baseline.")
+
+    client = OpenAI(api_key=api_key)
+    env = TicketTriageEnv()
+    results: list[dict[str, Any]] = []
+
+    for task in list_tasks():
+        observation = env.reset(task.task_id)
+        response = client.chat.completions.create(
+            model=DEFAULT_MODEL,
+            temperature=0,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You output strict JSON only. Do not include explanations.",
+                },
+                {
+                    "role": "user",
+                    "content": _build_prompt(observation),
+                },
+            ],
+        )
+        content = response.choices[0].message.content or "{}"
+        decision = _extract_json(content)
+
+        last_result = None
+        for action in _plan_actions(observation, decision):
+            last_result = env.step(action)
+            if last_result.done:
+                break
+
+        grader = env.grader()
+        results.append(
+            {
+                "task_id": task.task_id,
+                "difficulty": task.difficulty.value,
+                "grader_score": grader["score"],
+                "components": grader["components"],
+                "missing_or_incorrect": grader["missing_or_incorrect"],
+                "final_reward": last_result.reward.value if last_result else 0.0,
+            }
+        )
+
+    overall = round(sum(item["grader_score"] for item in results) / len(results), 4)
+    return {"model": DEFAULT_MODEL, "results": results, "overall_score": overall}
+
+
+if __name__ == "__main__":
+    print(json.dumps(run_baseline(), indent=2))

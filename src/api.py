@@ -15,6 +15,23 @@ class ResetRequest(BaseModel):
     task_id: str | None = None
 
 
+@app.get("/")
+def root() -> dict:
+    return {
+        "name": "customer-support-ticket-triage",
+        "status": "ok",
+        "endpoints": [
+            "/health",
+            "/tasks",
+            "/reset",
+            "/step",
+            "/state",
+            "/grader",
+            "/baseline",
+        ],
+    }
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}

@@ -171,7 +171,7 @@ The FastAPI app lives in [src/api.py](/home/eswarbalu/Desktop/mets-competition/s
 Install dependencies:
 
 ```bash
-pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 ```
 
 Run the API locally:
@@ -183,19 +183,113 @@ uvicorn app:app --reload
 Run tests:
 
 ```bash
-pytest
+python3 -m pytest
 ```
 
 Run the baseline:
 
 ```bash
-export OPENAI_API_KEY=your_key_here
-python baseline/run_baseline.py
+set -a
+source .env
+set +a
+python3 baseline/run_baseline.py
 ```
 
-## What To Do Next
+## Validation Status
 
-1. Tighten `openenv.yaml` to the exact schema expected by your installed OpenEnv version.
-2. Expand task coverage from the starter scenarios into richer datasets or generators.
-3. Improve the baseline prompt and action loop for stronger reproducibility.
-4. Add end-to-end validation with `openenv validate`, Docker, and Hugging Face Space deployment.
+The following checks have already been verified locally in this repo:
+
+- `openenv validate` passes
+- `python3 -m pytest` passes
+- `docker build -t mets-round1 .` passes
+- `docker run -p 7860:7860 mets-round1` starts successfully
+- `/health`, `/tasks`, `/reset`, and `/step` respond successfully in the container
+
+## Baseline Scores
+
+Baseline execution is implemented in [baseline/run_baseline.py](/home/eswarbalu/Desktop/mets-competition/baseline/run_baseline.py).
+
+Before submission, run it with a funded OpenAI API key and record the results here:
+
+| Task | Difficulty | Score |
+| --- | --- | --- |
+| `refund_status_easy` | easy | pending |
+| `account_takeover_medium` | medium | pending |
+| `vip_duplicate_charge_hard` | hard | pending |
+| overall | mixed | pending |
+
+If the script fails with `insufficient_quota`, the environment code is fine but the API project needs funded inference quota.
+
+## Docker Usage
+
+Build and run locally:
+
+```bash
+docker build -t mets-round1 .
+docker run -p 7860:7860 mets-round1
+```
+
+Smoke test the container:
+
+```bash
+curl http://127.0.0.1:7860/health
+curl http://127.0.0.1:7860/tasks
+curl -X POST http://127.0.0.1:7860/reset \
+  -H "Content-Type: application/json" \
+  -d '{"task_id":"refund_status_easy"}'
+curl -X POST http://127.0.0.1:7860/step \
+  -H "Content-Type: application/json" \
+  -d '{"action_type":"set_category","ticket_id":"TKT-1001","value":"billing_refund"}'
+```
+
+## Hugging Face Space Deployment
+
+Create a new Hugging Face Space with:
+
+- SDK: `Docker`
+- Visibility: your choice
+- Hardware: CPU is enough for this scaffold
+
+Then push the repo:
+
+```bash
+git init
+git add .
+git commit -m "Initial OpenEnv ticket triage environment"
+git branch -M main
+git remote add origin https://huggingface.co/spaces/YOUR_USERNAME/YOUR_SPACE_NAME
+git push -u origin main
+```
+
+After the Space is created, add these variables in the Space settings if needed:
+
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL`
+
+Expected public endpoints:
+
+- `/health`
+- `/tasks`
+- `/reset`
+- `/step`
+- `/grader`
+- `/baseline`
+
+## Final Submission Checklist
+
+- `openenv validate` passes
+- `python3 -m pytest` passes
+- Docker image builds successfully
+- Docker container starts and serves requests
+- Hugging Face Space deploys successfully
+- `/tasks`, `/grader`, and `/baseline` are reachable
+- baseline inference completes with a funded API key
+- README includes final baseline scores
+- `openenv.yaml`, `pyproject.toml`, and `uv.lock` are committed
+
+## Next Improvements
+
+1. Expand task coverage from the starter scenarios into richer datasets or generators.
+2. Improve the baseline prompt and action loop for stronger reproducibility.
+3. Add more tests around invalid and adversarial actions.
+4. Replace the placeholder baseline table with final measured scores before submission.

@@ -1,3 +1,12 @@
+---
+title: Customer Support Ticket Triage
+emoji: "\ud83d\udce8"
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 7860
+---
+
 # Customer Support Ticket Triage OpenEnv
 
 This project scaffolds an OpenEnv environment for customer support ticket triage. The environment simulates a real support workflow where an agent reads an incoming ticket, classifies it, sets priority, assigns the correct queue, adds tags, decides whether it needs escalation, and selects an appropriate response template.

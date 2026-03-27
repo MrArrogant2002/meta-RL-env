@@ -2,9 +2,15 @@ from __future__ import annotations
 
 import json
 import os
+import sys
+from pathlib import Path
 from typing import Any
 
-from openai import OpenAI
+from openai import APIConnectionError, AuthenticationError, OpenAI, RateLimitError
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.environment import TicketTriageEnv
 from src.models import Action, ActionType, Observation
@@ -94,42 +100,56 @@ def run_baseline() -> dict[str, Any]:
     env = TicketTriageEnv()
     results: list[dict[str, Any]] = []
 
-    for task in list_tasks():
-        observation = env.reset(task.task_id)
-        response = client.chat.completions.create(
-            model=DEFAULT_MODEL,
-            temperature=0,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You output strict JSON only. Do not include explanations.",
-                },
-                {
-                    "role": "user",
-                    "content": _build_prompt(observation),
-                },
-            ],
-        )
-        content = response.choices[0].message.content or "{}"
-        decision = _extract_json(content)
+    try:
+        for task in list_tasks():
+            observation = env.reset(task.task_id)
+            response = client.chat.completions.create(
+                model=DEFAULT_MODEL,
+                temperature=0,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You output strict JSON only. Do not include explanations.",
+                    },
+                    {
+                        "role": "user",
+                        "content": _build_prompt(observation),
+                    },
+                ],
+            )
+            content = response.choices[0].message.content or "{}"
+            decision = _extract_json(content)
 
-        last_result = None
-        for action in _plan_actions(observation, decision):
-            last_result = env.step(action)
-            if last_result.done:
-                break
+            last_result = None
+            for action in _plan_actions(observation, decision):
+                last_result = env.step(action)
+                if last_result.done:
+                    break
 
-        grader = env.grader()
-        results.append(
-            {
-                "task_id": task.task_id,
-                "difficulty": task.difficulty.value,
-                "grader_score": grader["score"],
-                "components": grader["components"],
-                "missing_or_incorrect": grader["missing_or_incorrect"],
-                "final_reward": last_result.reward.value if last_result else 0.0,
-            }
-        )
+            grader = env.grader()
+            results.append(
+                {
+                    "task_id": task.task_id,
+                    "difficulty": task.difficulty.value,
+                    "grader_score": grader["score"],
+                    "components": grader["components"],
+                    "missing_or_incorrect": grader["missing_or_incorrect"],
+                    "final_reward": last_result.reward.value if last_result else 0.0,
+                }
+            )
+    except AuthenticationError as exc:
+        raise RuntimeError(
+            "OpenAI authentication failed. Check OPENAI_API_KEY in your environment."
+        ) from exc
+    except RateLimitError as exc:
+        raise RuntimeError(
+            "OpenAI API quota is unavailable for this key. Add billing or use a funded key, "
+            "then rerun `python3 baseline/run_baseline.py`."
+        ) from exc
+    except APIConnectionError as exc:
+        raise RuntimeError(
+            "OpenAI API connection failed. Check internet access and try again."
+        ) from exc
 
     overall = round(sum(item["grader_score"] for item in results) / len(results), 4)
     return {"model": DEFAULT_MODEL, "results": results, "overall_score": overall}

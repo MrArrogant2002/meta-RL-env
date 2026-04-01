@@ -1,4 +1,4 @@
-# Round 1 — Problem Statement
+#  Round 1 — Problem Statement
 
 *The Task*
 
@@ -60,7 +60,6 @@ README must include: environment description and motivation, action and observat
 | Code quality & spec compliance | 15%    | Follows OpenEnv spec, clean project structure, typed models, documented, tested, Dockerfile works.                                 |
 | Creativity & novelty           | 10%    | Novel problem domain, interesting mechanics, clever reward design, original approach.                                              |
 
-
 # Scoring Breakdown
 
 *Real-world utility (30%)*
@@ -111,7 +110,6 @@ README must include: environment description and motivation, action and observat
 
 •  Clever mechanics that make the environment engaging?
 
-
 # How Judging works
 
 *Phase 1: Automated Validation*
@@ -129,13 +127,9 @@ Top submissions reviewed by Meta and Hugging Face engineers for real-world utili
 *Disqualification Criteria*
 
 * Environment does not deploy or respond
-
 * Plagiarized or trivially modified existing environments
-
 * Graders that always return the same score
-
 * No baseline inference script
-
 
 # Pre-Submission Checklist  — all must pass or you're disqualified
 
@@ -162,9 +156,7 @@ Enumerate tasks, run each grader, verify scores in 0.0–1.0 range
 *Additional Endpoints to Expose*
 
 * /baseline - Trigger inference script and returns baseline score for all 3 tasks
-
 * /grader - Returns grader score after an episode is completed
-
 * /tasks - Returns list of tasks and the action schema (fields required for an action in a step)
 
 *Validator*

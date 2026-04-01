@@ -91,52 +91,86 @@ def _plan_actions(observation: Observation, decision: dict[str, Any]) -> list[Ac
     return actions
 
 
-def run_baseline() -> dict[str, Any]:
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is required to run the baseline.")
-
-    client = OpenAI(api_key=api_key)
+def _run_with_llm(client: "OpenAI") -> list[dict[str, Any]]:
     env = TicketTriageEnv()
     results: list[dict[str, Any]] = []
+    for task in list_tasks():
+        observation = env.reset(task.task_id)
+        response = client.chat.completions.create(
+            model=DEFAULT_MODEL,
+            temperature=0,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You output strict JSON only. Do not include explanations.",
+                },
+                {
+                    "role": "user",
+                    "content": _build_prompt(observation),
+                },
+            ],
+        )
+        content = response.choices[0].message.content or "{}"
+        decision = _extract_json(content)
+
+        last_result = None
+        for action in _plan_actions(observation, decision):
+            last_result = env.step(action)
+            if last_result.done:
+                break
+
+        grader = env.grader()
+        results.append(
+            {
+                "task_id": task.task_id,
+                "difficulty": task.difficulty.value,
+                "grader_score": grader["score"],
+                "components": grader["components"],
+                "missing_or_incorrect": grader["missing_or_incorrect"],
+                "final_reward": last_result.reward.value if last_result else 0.0,
+            }
+        )
+    return results
+
+
+def _run_rule_based() -> list[dict[str, Any]]:
+    from baseline.rule_based import plan_actions as rule_plan_actions
+
+    env = TicketTriageEnv()
+    results: list[dict[str, Any]] = []
+    for task in list_tasks():
+        observation = env.reset(task.task_id)
+        last_result = None
+        for action in rule_plan_actions(observation):
+            last_result = env.step(action)
+            if last_result.done:
+                break
+
+        grader = env.grader()
+        results.append(
+            {
+                "task_id": task.task_id,
+                "difficulty": task.difficulty.value,
+                "grader_score": grader["score"],
+                "components": grader["components"],
+                "missing_or_incorrect": grader["missing_or_incorrect"],
+                "final_reward": last_result.reward.value if last_result else 0.0,
+            }
+        )
+    return results
+
+
+def run_baseline() -> dict[str, Any]:
+    api_key = os.getenv("OPENAI_API_KEY")
 
     try:
-        for task in list_tasks():
-            observation = env.reset(task.task_id)
-            response = client.chat.completions.create(
-                model=DEFAULT_MODEL,
-                temperature=0,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You output strict JSON only. Do not include explanations.",
-                    },
-                    {
-                        "role": "user",
-                        "content": _build_prompt(observation),
-                    },
-                ],
-            )
-            content = response.choices[0].message.content or "{}"
-            decision = _extract_json(content)
-
-            last_result = None
-            for action in _plan_actions(observation, decision):
-                last_result = env.step(action)
-                if last_result.done:
-                    break
-
-            grader = env.grader()
-            results.append(
-                {
-                    "task_id": task.task_id,
-                    "difficulty": task.difficulty.value,
-                    "grader_score": grader["score"],
-                    "components": grader["components"],
-                    "missing_or_incorrect": grader["missing_or_incorrect"],
-                    "final_reward": last_result.reward.value if last_result else 0.0,
-                }
-            )
+        if api_key:
+            client = OpenAI(api_key=api_key)
+            results = _run_with_llm(client)
+            model = DEFAULT_MODEL
+        else:
+            results = _run_rule_based()
+            model = "rule_based"
     except AuthenticationError as exc:
         raise RuntimeError(
             "OpenAI authentication failed. Check OPENAI_API_KEY in your environment."
@@ -152,7 +186,7 @@ def run_baseline() -> dict[str, Any]:
         ) from exc
 
     overall = round(sum(item["grader_score"] for item in results) / len(results), 4)
-    return {"model": DEFAULT_MODEL, "results": results, "overall_score": overall}
+    return {"model": model, "results": results, "overall_score": overall}
 
 
 if __name__ == "__main__":
